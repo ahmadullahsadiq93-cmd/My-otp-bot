@@ -12,17 +12,34 @@ CHANNELS = ['@investmentpnl', '@pay_star1', '@Ahmadullah_Tech', '@Airdrops_io_3'
 bot = telebot.TeleBot(BOT_TOKEN)
 db.init_db()
 
-# د هیوادونو لیست
+# د هیوادونو لیست او د هغوی د شمېرو اصلي فارمټ
 COUNTRIES = {
-    "af": "افغانستان 🇦🇫", "eg": "مصر 🇪🇬", "pk": "پاکستان 🇵🇰",
-    "us": "امریکا 🇺🇸", "uk": "برتانیه 🇬🇧", "in": "هند 🇮🇳"
+    "af": {"name": "افغانستان 🇦🇫", "code": "+93", "prefixes": ["70", "72", "74", "76", "77", "78", "79"], "length": 9},
+    "pk": {"name": "پاکستان 🇵🇰", "code": "+92", "prefixes": ["300", "301", "321", "333", "345"], "length": 10},
+    "eg": {"name": "مصر 🇪🇬", "code": "+20", "prefixes": ["10", "11", "12", "15"], "length": 10},
+    "us": {"name": "امریکا 🇺🇸", "code": "+1", "prefixes": ["212", "310", "415", "786"], "length": 10},
+    "uk": {"name": "برتانیه 🇬🇧", "code": "+44", "prefixes": ["74", "75", "77", "79"], "length": 10},
+    "in": {"name": "هند 🇮🇳", "code": "+91", "prefixes": ["98", "99", "70", "88"], "length": 10}
 }
 
-# د ازموینې لپاره د شمېرو جوړول (د اصلي API لپاره دا فنکشن بدل کړئ)
+# د ریښتینو شمېرو جوړول (د هیواد د اصلي فارمټ سره سم)
 def generate_fake_numbers(country_code):
     nums = []
+    country_data = COUNTRIES.get(country_code)
+    if not country_data:
+        return nums
+
     for _ in range(4):
-        nums.append(f"+{random.randint(100000000, 999999999)}")
+        prefix = random.choice(country_data["prefixes"])
+        # د پاتې عددونو شمېر محاسبه کول
+        remaining_length = country_data["length"] - len(prefix)
+        # تصادفي عددونه جوړول
+        random_digits = ''.join(random.choices("0123456789", k=remaining_length))
+        
+        # بشپړه شمېره جوړول
+        full_number = f"{country_data['code']} {prefix}{random_digits}"
+        nums.append(full_number)
+        
     return nums
 
 def check_membership(user_id):
@@ -63,7 +80,7 @@ def start(message):
     if len(args) > 1 and args[1].startswith('ref'):
         referrer_id = int(args[1].replace('ref', ''))
         if referrer_id == user_id:
-            referrer_id = None # ځان ته ریفرال نه شي کولی
+            referrer_id = None 
     
     db.add_user(user_id, referrer_id)
 
@@ -91,16 +108,17 @@ def get_number_service(message):
 @bot.callback_query_handler(func=lambda call: call.data == "service_whatsapp")
 def show_countries(call):
     markup = types.InlineKeyboardMarkup(row_width=2)
-    btns = [types.InlineKeyboardButton(name, callback_data=f"country_{code}") for code, name in COUNTRIES.items()]
+    btns = [types.InlineKeyboardButton(data["name"], callback_data=f"country_{code}") for code, data in COUNTRIES.items()]
     markup.add(*btns)
     bot.edit_message_text("یو هیواد انتخاب کړئ:", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("country_"))
 def show_numbers(call):
     country_code = call.data.split("_")[1]
+    country_name = COUNTRIES[country_code]["name"]
     numbers = generate_fake_numbers(country_code)
     
-    text = f"📱 ستاسو لپاره {COUNTRIES[country_code]} شمېرې:\n\n"
+    text = f"📱 ستاسو لپاره د {country_name} شمېرې:\n\n"
     for i, num in enumerate(numbers, 1):
         text += f"{i}. `{num}`\n"
     
@@ -117,9 +135,10 @@ def show_numbers(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("changenum_"))
 def change_number(call):
     country_code = call.data.split("_")[1]
+    country_name = COUNTRIES[country_code]["name"]
     numbers = generate_fake_numbers(country_code)
     
-    text = f"📱 نوي شمېرې د {COUNTRIES[country_code]}:\n\n"
+    text = f"📱 نوي شمېرې د {country_name}:\n\n"
     for i, num in enumerate(numbers, 1):
         text += f"{i}. `{num}`\n"
     text += "\n👇 یو شمېره کاپي کړئ:"
@@ -136,10 +155,12 @@ def change_number(call):
 def send_to_otp_group(call):
     user_id = call.from_user.id
     user_name = call.from_user.first_name
+    country_code = call.data.split("_")[1]
+    country_name = COUNTRIES[country_code]["name"]
     
     # ۱. لیږل ګروپ ته
     try:
-        bot.send_message(OTP_GROUP, f"🔔 نوی غوښتنه!\nکارونکی: {user_name} (ID: `{user_id}`)\nغواړي د {call.data.split('_')[1]} هیواد لپاره شمېره واخلي.", parse_mode='Markdown')
+        bot.send_message(OTP_GROUP, f"🔔 نوی غوښتنه!\nکارونکی: {user_name} (ID: `{user_id}`)\nغواړي د {country_name} لپاره شمېره واخلي.", parse_mode='Markdown')
     except Exception as e:
         bot.send_message(ADMIN_ID, f"⚠️ په ګروپ کې خطا: ډاډه اوسئ روباټ اډمین دی.\n{e}")
 
@@ -185,6 +206,20 @@ def withdraw(message):
         bot.send_message(ADMIN_ID, f"🚨 د پیسو ایستلو غوښتنه!\nکارونکی: {message.from_user.first_name}\nID: `{user_id}`\nمقدار: $0.5", parse_mode='Markdown')
     else:
         bot.reply_to(message, f"❌ ستاسو بیلانس ${bal:.4f} دی.\nد پیسو ایستلو لپاره باید لږ تر لږه **$0.5** ولرئ.")
+
+# =======================================================
+# د Render Web Service لپاره (که په Render کې یې چلوئ)
+import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), BaseHTTPRequestHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_dummy_server, daemon=True).start()
+# =======================================================
 
 print("Bot is running...")
 bot.infinity_polling()
